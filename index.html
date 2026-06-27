@@ -205,6 +205,15 @@ tr:hover td{background:var(--g50)}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16v-2"/><line x1="16" y1="16" x2="22" y2="16"/><line x1="19" y1="13" x2="19" y2="19"/></svg>
       ซื้อสินค้าเข้า
     </div>
+    <div style="height:1px;background:var(--g100);margin:8px 16px"></div>
+    <div class="di" onclick="pullFromGS();closeDrawer()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+      ☁️ Sync / โหลดข้อมูล
+    </div>
+    <div class="di" onclick="openGSSettings();closeDrawer()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/></svg>
+      ⚙️ ตั้งค่า Google Sheets
+    </div>
   </div>
 </div>
 
@@ -1390,7 +1399,17 @@ function json(obj) {
 
 // ── GS CONFIG UI ──
 function openGS(type) {
-  if(DB.gs.view) { window.open(DB.gs.view,'_blank'); return; }
+  // ถ้ามี view URL และไม่ได้กดตั้งค่า → เปิด Sheet เลย
+  if(DB.gs.view && type !== 'settings') {
+    window.open(DB.gs.view,'_blank'); return;
+  }
+  // เปิดหน้าตั้งค่า
+  document.getElementById('gs-url').value=DB.gs.url||'';
+  document.getElementById('gs-view').value=DB.gs.view||'';
+  document.getElementById('gs-code-area').value=GS_CODE;
+  OM('m-gs');
+}
+function openGSSettings() {
   document.getElementById('gs-url').value=DB.gs.url||'';
   document.getElementById('gs-view').value=DB.gs.view||'';
   document.getElementById('gs-code-area').value=GS_CODE;
@@ -1428,28 +1447,58 @@ async function pushFullDB() {
   } catch(e){ /* silent */ }
 }
 
-// ── PULL full DB from Sheets ──
-async function pullFromGS() {
+// ── PULL full DB from Sheets (JSONP — bypass CORS) ──
+function pullFromGS() {
   if(!DB.gs.url) { toast('กรุณาตั้งค่า Google Sheets ก่อน',1); return; }
-  toast('กำลังโหลดข้อมูลจาก Google Sheets...');
-  try {
-    const url = DB.gs.url.replace('/exec','/exec')+'?action=loadDB&t='+Date.now();
-    const res = await fetch(url, {method:'GET', mode:'cors'});
-    const json = await res.json();
-    if(json.status==='ok' && json.data && json.data.db) {
-      const remote = json.data.db;
-      const gsConfig = DB.gs; // keep current GS config
-      DB = {...DB, ...remote, gs: gsConfig};
-      saveDB();
-      // re-render current page
-      P(document.querySelector('.page.active')?.id?.replace('page-','') || 'order');
-      toast('✅ โหลดข้อมูลสำเร็จ! ลิ้งกับทุกเครื่องแล้ว');
-    } else {
-      toast('ไม่พบข้อมูลใน Sheets — ลอง sync ก่อนครับ',1);
+  toast('☁️ กำลังโหลดข้อมูล...');
+
+  // ลบ script tag เก่าถ้ามี
+  const old = document.getElementById('jsonp-script');
+  if(old) old.remove();
+
+  // callback function
+  window._gsCallback = function(data) {
+    try {
+      if(data && data.status==='ok' && data.data && data.data.db) {
+        const remote = data.data.db;
+        const gsConfig = DB.gs;
+        DB = {...DB, ...remote, gs: gsConfig};
+        saveDB();
+        const curPage = document.querySelector('.page.active')?.id?.replace('page-','') || 'order';
+        P(curPage);
+        toast('✅ โหลดข้อมูลสำเร็จ! ข้อมูลลิ้งกันแล้ว');
+      } else {
+        toast('⚠️ ยังไม่มีข้อมูลใน Sheets — กด Sync จากโทรศัพท์ก่อนครับ',1);
+      }
+    } catch(e) {
+      toast('❌ โหลดข้อมูลผิดพลาด: '+e.message,1);
     }
-  } catch(err) {
-    toast('โหลดไม่สำเร็จ: '+err.message,1);
-  }
+    // cleanup
+    const s = document.getElementById('jsonp-script');
+    if(s) s.remove();
+    delete window._gsCallback;
+  };
+
+  // สร้าง script tag ใหม่
+  const script = document.createElement('script');
+  script.id = 'jsonp-script';
+  script.src = DB.gs.url + '?action=loadDB&callback=_gsCallback&t=' + Date.now();
+  script.onerror = function() {
+    toast('❌ เชื่อมต่อ Apps Script ไม่ได้ — ตรวจสอบ URL',1);
+    script.remove();
+    delete window._gsCallback;
+  };
+  document.head.appendChild(script);
+
+  // timeout 10 วินาที
+  setTimeout(function() {
+    if(window._gsCallback) {
+      toast('❌ Timeout — ลองใหม่อีกครั้ง',1);
+      const s = document.getElementById('jsonp-script');
+      if(s) s.remove();
+      delete window._gsCallback;
+    }
+  }, 10000);
 }
 
 // ── SYNC on every save ──
