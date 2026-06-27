@@ -1243,10 +1243,40 @@ function openPD(pid) {
 }
 
 // ═══════════════════════════════════════════════
-//  GOOGLE SHEETS SYNC
+//  GOOGLE SHEETS — BIDIRECTIONAL SYNC
 // ═══════════════════════════════════════════════
-const GS_CODE = `// ShopPOS - Google Apps Script
-// วาง code นี้ใน Extensions → Apps Script แล้ว Deploy → New Deployment → Web App
+const GS_CODE = `// ShopPOS Apps Script v2 — Bidirectional Sync
+// ลบโค้ดเดิมทั้งหมด แล้ววางโค้ดนี้แทน
+// Deploy → New deployment → Web app → Anyone → Deploy
+
+function doGet(e) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const action = e.parameter.action || 'ping';
+
+    if (action === 'ping') {
+      return json({status:'ok', msg:'ShopPOS v2 running'});
+    }
+
+    if (action === 'loadDB') {
+      const result = {};
+
+      // Load DB sheet (main data store)
+      const dbSh = ss.getSheetByName('_DB');
+      if (dbSh && dbSh.getLastRow() > 1) {
+        const val = dbSh.getRange(2,1).getValue();
+        if (val) {
+          try { result.db = JSON.parse(val); } catch(e2) {}
+        }
+      }
+      return json({status:'ok', data: result});
+    }
+
+    return json({status:'error', msg:'Unknown action'});
+  } catch(err) {
+    return json({status:'error', msg: err.message});
+  }
+}
 
 function doPost(e) {
   try {
@@ -1254,41 +1284,111 @@ function doPost(e) {
     const payload = JSON.parse(e.postData.contents);
     const type = payload.type;
     const d = payload.data;
-    
+
+    // ── SAVE FULL DB (main sync) ──
+    if (type === 'saveDB') {
+      let sh = ss.getSheetByName('_DB');
+      if (!sh) {
+        sh = ss.insertSheet('_DB');
+        sh.appendRow(['updated_at', 'db_json']);
+        sh.setFrozenRows(1);
+      }
+      const now = new Date().toLocaleString('th-TH');
+      if (sh.getLastRow() <= 1) {
+        sh.appendRow([now, JSON.stringify(d)]);
+      } else {
+        sh.getRange(2,1).setValue(now);
+        sh.getRange(2,2).setValue(JSON.stringify(d));
+      }
+      // Also write human-readable sheets
+      writeOrders(ss, d.orders || []);
+      writeProducts(ss, d.products || []);
+      writePurchases(ss, d.purHistory || []);
+      return json({status:'ok'});
+    }
+
+    // ── SINGLE ORDER (legacy) ──
     if (type === 'order') {
-      let sh = ss.getSheetByName('Orders');
-      if (!sh) {
-        sh = ss.insertSheet('Orders');
-        sh.appendRow(['รหัสออร์เดอร์','วันที่-เวลา','รหัสสินค้า','ชื่อสินค้า','ราคา/ชิ้น','จำนวน','ยอดรวมชิ้น','ยอดก่อนลด','ส่วนลด','ยอดสุทธิ','วิธีชำระ','โน๊ต']);
-        sh.setFrozenRows(1);
-      }
-      d.items.forEach(function(item) {
-        sh.appendRow([d.id, d.dt, item.code, item.name, item.price, item.qty, item.sub, d.gross, d.disc, d.net, d.pay, d.note || '']);
-      });
+      writeOrders(ss, [d]);
+      return json({status:'ok'});
     }
-    
-    else if (type === 'purchase') {
-      let sh = ss.getSheetByName('Purchases');
-      if (!sh) {
-        sh = ss.insertSheet('Purchases');
-        sh.appendRow(['รหัสซื้อ','วันที่-เวลา','รหัสสินค้า','ชื่อสินค้า','ราคา/แพ็ค','แพ็ค','ชิ้น/แพ็ค','รวมชิ้น','Cost/unit','รวมต้นทุน','ส่วนลด','จ่ายรวม']);
-        sh.setFrozenRows(1);
-      }
-      d.items.forEach(function(item) {
-        sh.appendRow([d.id, d.dt, item.code, item.name, item.pricePerPack, item.packs, item.upp, item.totalUnits, item.cpu, item.totalCost, d.disc, d.total]);
-      });
+
+    // ── SINGLE PURCHASE (legacy) ──
+    if (type === 'purchase') {
+      writePurchases(ss, [d]);
+      return json({status:'ok'});
     }
-    
-    return ContentService.createTextOutput(JSON.stringify({status:'ok'})).setMimeType(ContentService.MimeType.JSON);
+
+    return json({status:'error', msg:'Unknown type'});
   } catch(err) {
-    return ContentService.createTextOutput(JSON.stringify({status:'error',msg:err.message})).setMimeType(ContentService.MimeType.JSON);
+    return json({status:'error', msg: err.message});
   }
 }
 
-function doGet(e) {
-  return ContentService.createTextOutput('ShopPOS Apps Script is running ✓');
+function writeOrders(ss, orders) {
+  if (!orders || !orders.length) return;
+  let sh = ss.getSheetByName('Orders');
+  if (!sh) {
+    sh = ss.insertSheet('Orders');
+    sh.appendRow(['รหัส','วันที่','ชื่อสินค้า','จำนวน','ราคา/ชิ้น','ยอดรวม','ส่วนลด','สุทธิ','วิธีชำระ','โน๊ต']);
+    sh.setFrozenRows(1);
+  }
+  // Get existing IDs
+  const lastRow = sh.getLastRow();
+  const existingIDs = lastRow > 1
+    ? sh.getRange(2,1,lastRow-1,1).getValues().map(r=>r[0])
+    : [];
+  orders.filter(o=>!o.cancelled).forEach(function(o) {
+    if (existingIDs.indexOf(o.id) === -1) {
+      (o.items||[]).forEach(function(it) {
+        sh.appendRow([o.id, o.dt, it.name, it.qty, it.price, it.sub, o.disc, o.net, o.pay, o.note||'']);
+      });
+    }
+  });
+}
+
+function writeProducts(ss, products) {
+  if (!products || !products.length) return;
+  let sh = ss.getSheetByName('Products');
+  if (!sh) {
+    sh = ss.insertSheet('Products');
+    sh.appendRow(['รหัสสินค้า','ชื่อสินค้า','หมวดหมู่','ราคา']);
+    sh.setFrozenRows(1);
+  }
+  sh.clearContents();
+  sh.appendRow(['รหัสสินค้า','ชื่อสินค้า','หมวดหมู่','ราคา']);
+  products.forEach(function(p) {
+    sh.appendRow([p.code||'', p.name, p.cat||'', p.price]);
+  });
+}
+
+function writePurchases(ss, history) {
+  if (!history || !history.length) return;
+  let sh = ss.getSheetByName('Purchases');
+  if (!sh) {
+    sh = ss.insertSheet('Purchases');
+    sh.appendRow(['รหัสซื้อ','วันที่','ชื่อสินค้า','แพ็ค','ชิ้น/แพ็ค','รวมชิ้น','Cost/unit','รวมต้นทุน','ส่วนลด','จ่ายรวม']);
+    sh.setFrozenRows(1);
+  }
+  const lastRow = sh.getLastRow();
+  const existingIDs = lastRow > 1
+    ? sh.getRange(2,1,lastRow-1,1).getValues().map(r=>r[0])
+    : [];
+  history.forEach(function(h) {
+    if (existingIDs.indexOf(h.id) === -1) {
+      (h.items||[]).forEach(function(it) {
+        sh.appendRow([h.id, h.dt, it.name, it.packs, it.upp, it.totalUnits, it.cpu, it.totalCost, h.disc, h.total]);
+      });
+    }
+  });
+}
+
+function json(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
 }`;
 
+// ── GS CONFIG UI ──
 function openGS(type) {
   if(DB.gs.view) { window.open(DB.gs.view,'_blank'); return; }
   document.getElementById('gs-url').value=DB.gs.url||'';
@@ -1300,7 +1400,11 @@ function openGS(type) {
 function saveGS() {
   DB.gs.url=document.getElementById('gs-url').value.trim();
   DB.gs.view=document.getElementById('gs-view').value.trim();
-  saveDB(); CM('m-gs'); toast('บันทึกการตั้งค่า Google Sheets แล้ว');
+  saveDB();
+  CM('m-gs');
+  toast('บันทึกการตั้งค่าแล้ว — กำลัง sync...');
+  // Push current data immediately after saving URL
+  if(DB.gs.url) pushFullDB();
 }
 
 function copyGSCode() {
@@ -1310,11 +1414,56 @@ function copyGSCode() {
   });
 }
 
+// ── PUSH full DB to Sheets ──
+async function pushFullDB() {
+  if(!DB.gs.url) return;
+  const dbToSave = {...DB};
+  delete dbToSave.gs; // don't save credentials
+  try {
+    await fetch(DB.gs.url, {
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({type:'saveDB', data: dbToSave})
+    });
+  } catch(e){ /* silent */ }
+}
+
+// ── PULL full DB from Sheets ──
+async function pullFromGS() {
+  if(!DB.gs.url) { toast('กรุณาตั้งค่า Google Sheets ก่อน',1); return; }
+  toast('กำลังโหลดข้อมูลจาก Google Sheets...');
+  try {
+    const url = DB.gs.url.replace('/exec','/exec')+'?action=loadDB&t='+Date.now();
+    const res = await fetch(url, {method:'GET', mode:'cors'});
+    const json = await res.json();
+    if(json.status==='ok' && json.data && json.data.db) {
+      const remote = json.data.db;
+      const gsConfig = DB.gs; // keep current GS config
+      DB = {...DB, ...remote, gs: gsConfig};
+      saveDB();
+      // re-render current page
+      P(document.querySelector('.page.active')?.id?.replace('page-','') || 'order');
+      toast('✅ โหลดข้อมูลสำเร็จ! ลิ้งกับทุกเครื่องแล้ว');
+    } else {
+      toast('ไม่พบข้อมูลใน Sheets — ลอง sync ก่อนครับ',1);
+    }
+  } catch(err) {
+    toast('โหลดไม่สำเร็จ: '+err.message,1);
+  }
+}
+
+// ── SYNC on every save ──
 async function syncGS(type, data) {
   if(!DB.gs.url) return;
-  try {
-    await fetch(DB.gs.url, {method:'POST', mode:'no-cors', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type,data})});
-  } catch(e){ /* silent fail */ }
+  // Push full DB every time for bidirectional sync
+  pushFullDB();
+}
+
+// ── AUTO SYNC every 30 seconds if GS configured ──
+function startAutoSync() {
+  setInterval(()=>{
+    if(DB.gs.url) pushFullDB();
+  }, 30000);
 }
 
 // ═══════════════════════════════════════════════
@@ -1322,6 +1471,21 @@ async function syncGS(type, data) {
 // ═══════════════════════════════════════════════
 loadDB();
 P('order');
+startAutoSync();
+
+// Add sync button to topbar
+document.addEventListener('DOMContentLoaded', ()=>{
+  const topbar = document.getElementById('topbar');
+  if(topbar) {
+    const syncBtn = document.createElement('button');
+    syncBtn.id = 'sync-btn';
+    syncBtn.innerHTML = '☁️';
+    syncBtn.title = 'Sync / โหลดข้อมูล';
+    syncBtn.style.cssText = 'background:none;border:none;font-size:20px;cursor:pointer;padding:6px;border-radius:8px;margin-right:4px';
+    syncBtn.onclick = pullFromGS;
+    topbar.insertBefore(syncBtn, document.getElementById('menu-btn'));
+  }
+});
 </script>
 </body>
 </html>
