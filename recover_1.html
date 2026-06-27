@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>กู้ข้อมูล ShopPOS</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F0F4F8;padding:16px;color:#1E293B}
+.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+h2{color:#2563EB;font-size:18px;margin-bottom:4px}
+.btn{display:block;width:100%;padding:14px;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;margin-top:10px;font-family:inherit}
+.bp{background:#2563EB;color:#fff}
+.bs{background:#16A34A;color:#fff}
+.item{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #F1F5F9;font-size:13px}
+.badge{padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700}
+.b1{background:#DBEAFE;color:#2563EB}.b2{background:#DCFCE7;color:#16A34A}
+.b3{background:#FFEDD5;color:#EA580C}.b4{background:#FEE2E2;color:#DC2626}
+.b5{background:#F3E8FF;color:#7C3AED}.b6{background:#ECFDF5;color:#059669}
+.b7{background:#FEF9C3;color:#CA8A04}.b8{background:#F1F5F9;color:#475569}
+#status{padding:12px;border-radius:8px;font-weight:600;margin-top:12px;display:none;font-size:14px;line-height:1.8}
+.ok{background:#DCFCE7;color:#16A34A}.err{background:#FEE2E2;color:#DC2626}
+.fi{width:100%;padding:10px 12px;border:1.5px solid #E2E8F0;border-radius:8px;font-size:14px;font-family:inherit;outline:none}
+.fi:focus{border-color:#2563EB}
+.fl{display:block;font-size:12px;font-weight:600;color:#475569;margin-bottom:4px}
+.stk{font-size:12px;color:#16A34A;font-weight:700}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>🔧 กู้ข้อมูล ShopPOS + สต๊อกเริ่มต้น</h2>
+  <p style="color:#64748B;font-size:13px;margin-top:6px">โหลดสินค้า 39 รายการ + สต๊อกเริ่มต้นเข้าระบบทีเดียว</p>
+</div>
+
+<div class="card">
+  <div style="font-weight:700;margin-bottom:10px">📦 สินค้า + สต๊อกเริ่มต้น</div>
+  <div id="prod-list"></div>
+</div>
+
+<div class="card">
+  <div style="font-weight:700;margin-bottom:8px">⚙️ Apps Script URL</div>
+  <input type="text" class="fi" id="gs-url" placeholder="https://script.google.com/macros/s/...">
+  <button class="btn bs" onclick="recoverAndPush()">🚀 กู้ข้อมูล + Push ขึ้น Sheets</button>
+  <button class="btn bp" onclick="recoverToLocal()">💾 กู้ข้อมูลลงเครื่องนี้อย่างเดียว</button>
+  <div id="status"></div>
+  <button id="open-btn" class="btn" style="display:none;background:#7C3AED;color:#fff;margin-top:10px"
+    onclick="window.location.href='https://supiswork.github.io/PX-by-Siriwat-Supisara/'">
+    🏪 เปิด ShopPOS
+  </button>
+</div>
+
+<script>
+const DBKEY = 'shoppos_v2';
+
+const products = [
+  {id:'PR260001',code:'A-RG-500',     name:'รีเจนซี่ กลม',                              cat:'เหล้า',                   price:800},
+  {id:'PR260002',code:'A-TD-KH-330',  name:'ตะวันแดง สุราข้าวหอม330ml',                cat:'เหล้า',                   price:100},
+  {id:'PR260003',code:'B-LA-LA-330',  name:'เบียร์ลาว ลาเกอร์ 330ml',                  cat:'เบียร์',                  price:85},
+  {id:'PR260004',code:'B-SI-220',     name:'เบียร์สิง 220ml ขวด',                       cat:'เบียร์',                  price:90},
+  {id:'PR260005',code:'B-SN-RS-490',  name:'สโนววี่โรเซ่ 490ml',                        cat:'เบียร์',                  price:90},
+  {id:'PR260006',code:'C-BD-BL-180',  name:'เบอร์ดี้แบล็กซีโร่ 180ml',                cat:'กาแฟ',                    price:20},
+  {id:'PR260007',code:'C-BD-RO-170',  name:'เบอร์ดี้ โรบัสต้า 170ml',                 cat:'กาแฟ',                    price:20},
+  {id:'PR260008',code:'CG-LM-RED',    name:'LM แดง',                                    cat:'อื่นๆ',                   price:90},
+  {id:'PR260009',code:'S-LA-BQ-48',   name:'เลย์ ร็อค รสบาร์บีคิว 48g',               cat:'ขนม',                     price:25},
+  {id:'PR260010',code:'S-LA-HC-48',   name:'เลย์ รสปลาหมึกฮ็อตชิลลี่ 48g',           cat:'ขนม',                     price:25},
+  {id:'PR260011',code:'S-LA-NR-48',   name:'เลย์ รสโนริสาหร่าย 48g',                  cat:'ขนม',                     price:25},
+  {id:'PR260012',code:'S-LA-SA-48',   name:'เลย์ รสเกลือ 48g',                         cat:'ขนม',                     price:25},
+  {id:'PR260013',code:'S-LA-SC-48',   name:'เลย์ รสซาวครีม 48g',                       cat:'ขนม',                     price:25},
+  {id:'PR260014',code:'D-CO-NO-330',  name:'โค้ก No Sugar 330ml',                       cat:'น้ำหวาน',                 price:15},
+  {id:'PR260015',code:'D-CO-SU-295',  name:'โค้ก รสออริจินัล 295ml',                  cat:'น้ำหวาน',                 price:15},
+  {id:'PR260016',code:'D-CO-SU-330',  name:'โค้ก Original 330ml',                       cat:'น้ำหวาน',                 price:15},
+  {id:'PR260017',code:'D-IC-HL-280',  name:'อิชิตัน ชาเขียวน้ำผึ้งมะนาว 280ml',       cat:'น้ำหวาน',                 price:12},
+  {id:'PR260018',code:'D-IC-KH-280',  name:'อิชิตัน ชาเขียวองุ่นเคียวโฮ 280ml',       cat:'น้ำหวาน',                 price:12},
+  {id:'PR260019',code:'D-JB-GR-140',  name:'เจเล่บิวตี้ องุ่น 140g',                  cat:'น้ำหวาน',                 price:15},
+  {id:'PR260020',code:'D-JB-ST-140',  name:'เจเล่บิวตี้ สตอเบอร์รี่ 140g',           cat:'น้ำหวาน',                 price:15},
+  {id:'PR260021',code:'D-ML-CC-350',  name:'น้ำมะพร้าวมาลี 350ml',                     cat:'น้ำหวาน',                 price:30},
+  {id:'PR260022',code:'D-MS-GR-430',  name:'แมนซำน้ำองุ่นขาว 430ml',                  cat:'น้ำหวาน',                 price:30},
+  {id:'PR260023',code:'D-MT-AL-330',  name:'มอนส์เตอร์อัลต้า 330ml',                  cat:'เครื่องดื่มออกกำลังกาย', price:60},
+  {id:'PR260024',code:'D-PK-500',     name:'โพคารี่ 500ml',                             cat:'เครื่องดื่มออกกำลังกาย', price:30},
+  {id:'PR260025',code:'D-PS-NO-325',  name:'เป็ปซี่ไม่มีน้ำตาลกระป๋อง 325ml',        cat:'น้ำหวาน',                 price:17},
+  {id:'PR260026',code:'D-RB-BB-250',  name:'เรดบูลโซดา กลิ่นบลูเบอรี่ 250ml',        cat:'เครื่องดื่มออกกำลังกาย', price:22},
+  {id:'PR260027',code:'D-SI-LM-330',  name:'สิงห์เลม่อนโซดา 330ml',                   cat:'น้ำหวาน',                 price:17},
+  {id:'PR260028',code:'D-SI-SO-325',  name:'โซดา 325ml',                                cat:'อื่นๆ',                   price:15},
+  {id:'PR260029',code:'D-SK-HL-320',  name:'ชาคูลล์ซ่า ฮันนี่เลม่อน 320ml',          cat:'น้ำหวาน',                 price:17},
+  {id:'PR260030',code:'D-SP-OR-420',  name:'สปอนเซอร์ ออริจินัล โก น้ำตาล 0% 420ml', cat:'เครื่องดื่มออกกำลังกาย', price:20},
+  {id:'PR260031',code:'D-SP-SU-420',  name:'สปอนเซอร์ ออริจินัล โก 420ml',            cat:'เครื่องดื่มออกกำลังกาย', price:20},
+  {id:'PR260032',code:'F-MK-OS-55',   name:'มังกรคู่คัพก๋วยเตี๋ยวเรือ สูตรโบราณ 55g',cat:'อาหาร',                  price:30},
+  {id:'PR260033',code:'F-MM-CZ-62',   name:'มาม่าคัพ สไปซี่ชีส 62g',                  cat:'อาหาร',                  price:20},
+  {id:'PR260034',code:'F-MM-OG-85',   name:'มาม่า ออเรียนทัลผัดไข่เค็ม 85g',         cat:'อาหาร',                  price:25},
+  {id:'PR260035',code:'F-MM-PO-60',   name:'มาม่าคัพ หมูสับ 60g',                      cat:'อาหาร',                  price:20},
+  {id:'PR260036',code:'F-MM-PO-B-60', name:'มาม่า บะหมี่กึ่งสำเร็จรูป รสหมูสับ 60g', cat:'อาหาร',                  price:10},
+  {id:'PR260037',code:'F-MM-SH-60',   name:'มาม่าต้มยำกุ้ง 60g',                       cat:'อาหาร',                  price:20},
+  {id:'PR260038',code:'F-MM-TY-B-55', name:'มาม่า บะหมี่กึ่งสำเร็จรูป รสต้มยำกุ้ง 55g',cat:'อาหาร',               price:10},
+  {id:'PR260039',code:'F-NS-CH-71',   name:'นิสชิน คัพ รสไก่เผ็ดเกาหลี 71g',          cat:'อาหาร',                  price:25},
+];
+
+// สต๊อกเริ่มต้นจาก Purchases sheet (รวม 2 รอบ)
+const stockData = {
+  'A-RG-500':1,    'A-TD-KH-330':2,  'B-LA-LA-330':1, 'B-SI-220':9,
+  'B-SN-RS-490':4, 'CG-LM-RED':2,    'C-BD-BL-180':6, 'C-BD-RO-170':33,
+  'D-CO-NO-330':20,'D-CO-SU-295':5,  'D-CO-SU-330':8, 'D-IC-HL-280':21,
+  'D-IC-KH-280':18,'D-JB-GR-140':3,  'D-JB-ST-140':4, 'D-ML-CC-350':22,
+  'D-MS-GR-430':9, 'D-MT-AL-330':17, 'D-PK-500':6,    'D-PS-NO-325':1,
+  'D-RB-BB-250':1, 'D-SI-LM-330':1,  'D-SI-SO-325':24,'D-SK-HL-320':20,
+  'D-SP-OR-420':2, 'D-SP-SU-420':12, 'F-MK-OS-55':13, 'F-MM-CZ-62':6,
+  'F-MM-OG-85':7,  'F-MM-PO-60':5,   'F-MM-PO-B-60':2,'F-MM-SH-60':8,
+  'F-MM-TY-B-55':2,'F-NS-CH-71':9,   'S-LA-BQ-48':7,  'S-LA-HC-48':11,
+  'S-LA-NR-48':4,  'S-LA-SA-48':11,  'S-LA-SC-48':6,
+};
+
+// สร้าง purchase history records จากข้อมูลจริง
+const purDate = '2026-06-27T15:22:00.000Z';
+const purItems1 = [ // รอบ P260627221554
+  {code:'A-RG-500',qty:1},{code:'A-TD-KH-330',qty:2},{code:'B-LA-LA-330',qty:1},
+];
+const purItems2 = [ // รอบ P260627222426 (ที่เหลือทั้งหมด)
+  {code:'B-SI-220',qty:9},{code:'B-SN-RS-490',qty:4},{code:'CG-LM-RED',qty:2},
+  {code:'C-BD-BL-180',qty:6},{code:'C-BD-RO-170',qty:33},{code:'D-CO-NO-330',qty:20},
+  {code:'D-CO-SU-295',qty:5},{code:'D-CO-SU-330',qty:8},{code:'D-IC-HL-280',qty:21},
+  {code:'D-IC-KH-280',qty:18},{code:'D-JB-GR-140',qty:3},{code:'D-JB-ST-140',qty:4},
+  {code:'D-ML-CC-350',qty:22},{code:'D-MS-GR-430',qty:9},{code:'D-MT-AL-330',qty:17},
+  {code:'D-PK-500',qty:6},{code:'D-PS-NO-325',qty:1},{code:'D-RB-BB-250',qty:1},
+  {code:'D-SI-LM-330',qty:1},{code:'D-SI-SO-325',qty:24},{code:'D-SK-HL-320',qty:20},
+  {code:'D-SP-OR-420',qty:2},{code:'D-SP-SU-420',qty:12},{code:'F-MK-OS-55',qty:13},
+  {code:'F-MM-CZ-62',qty:6},{code:'F-MM-OG-85',qty:7},{code:'F-MM-PO-60',qty:5},
+  {code:'F-MM-PO-B-60',qty:2},{code:'F-MM-SH-60',qty:8},{code:'F-MM-TY-B-55',qty:2},
+  {code:'F-NS-CH-71',qty:9},{code:'S-LA-BQ-48',qty:7},{code:'S-LA-HC-48',qty:11},
+  {code:'S-LA-NR-48',qty:4},{code:'S-LA-SA-48',qty:11},{code:'S-LA-SC-48',qty:6},
+];
+
+function makePurItems(codeQtyArr) {
+  return codeQtyArr.map(function(x) {
+    const p = products.find(function(p){ return p.code === x.code; });
+    return {
+      pid: p ? p.id : x.code,
+      code: x.code,
+      name: p ? p.name : x.code,
+      cat: p ? p.cat : '',
+      pricePerPack: 0,
+      packs: 1,
+      upp: x.qty,
+      totalUnits: x.qty,
+      cpu: 0,
+      totalCost: 0
+    };
+  });
+}
+
+const purHistory = [
+  { id:'P260627221554', dt:'2026-06-27T15:15:54.000Z', items: makePurItems(purItems1), sub:0, disc:0, total:0 },
+  { id:'P260627222426', dt:'2026-06-27T15:22:26.000Z', items: makePurItems(purItems2), sub:0, disc:0, total:0 },
+];
+
+const purchases = [];
+purHistory.forEach(function(ph) {
+  ph.items.forEach(function(it) {
+    purchases.push({
+      purId: ph.id, pid: it.pid, code: it.code, name: it.name,
+      dt: ph.dt, packs: it.packs, upp: it.upp,
+      totalUnits: it.totalUnits, pricePerPack: 0, cpu: 0
+    });
+  });
+});
+
+const catColors = {
+  'เหล้า':'b4','เบียร์':'b1','กาแฟ':'b7','ขนม':'b3',
+  'น้ำหวาน':'b2','เครื่องดื่มออกกำลังกาย':'b5','อาหาร':'b6','อื่นๆ':'b8'
+};
+
+document.getElementById('prod-list').innerHTML = products.map(function(p) {
+  const stk = stockData[p.code] || 0;
+  return '<div class="item"><div style="flex:1;padding-right:8px"><div style="font-weight:600;line-height:1.3">'+p.name+'</div><div style="font-size:11px;color:#94A3B8">'+p.code+'</div></div><div style="text-align:right;flex-shrink:0"><div style="font-weight:700;color:#2563EB">฿'+p.price+'</div><span class="badge '+(catColors[p.cat]||'b8')+'">'+p.cat+'</span> <span class="stk">สต๊อก '+stk+'</span></div></div>';
+}).join('');
+
+try {
+  const saved = localStorage.getItem(DBKEY);
+  if(saved) {
+    const db = JSON.parse(saved);
+    if(db.gs && db.gs.url) document.getElementById('gs-url').value = db.gs.url;
+  }
+} catch(e){}
+
+function showStatus(msg, ok) {
+  const el = document.getElementById('status');
+  el.innerHTML = msg; el.className = ok ? 'ok' : 'err'; el.style.display = 'block';
+}
+
+function buildDB(gsUrl) {
+  const cats = ['ทั้งหมด','เหล้า','เบียร์','กาแฟ','เครื่องดื่มออกกำลังกาย','น้ำหวาน','อาหาร','ขนม','อื่นๆ'];
+  let db = {
+    cats, products, purchases, purHistory,
+    orders:[], txs:[], stockAdj:[],
+    gs: { url: gsUrl||'', view:'' }
+  };
+  try {
+    const saved = localStorage.getItem(DBKEY);
+    if(saved) {
+      const old = JSON.parse(saved);
+      if(old.orders && old.orders.length)   db.orders   = old.orders;
+      if(old.txs   && old.txs.length)       db.txs      = old.txs;
+      if(old.stockAdj && old.stockAdj.length) db.stockAdj = old.stockAdj;
+      if(old.gs && old.gs.view)             db.gs.view  = old.gs.view;
+    }
+  } catch(e){}
+  return db;
+}
+
+function recoverToLocal() {
+  const url = document.getElementById('gs-url').value.trim();
+  const db = buildDB(url);
+  localStorage.setItem(DBKEY, JSON.stringify(db));
+  const total = Object.values(stockData).reduce(function(a,b){return a+b;},0);
+  showStatus('✅ กู้ข้อมูลสำเร็จ!<br>📦 สินค้า '+products.length+' รายการ<br>📊 สต๊อกรวม '+total+' ชิ้น', true);
+  document.getElementById('open-btn').style.display = 'block';
+}
+
+async function recoverAndPush() {
+  const url = document.getElementById('gs-url').value.trim();
+  if(!url){ showStatus('❌ กรุณาใส่ Apps Script URL ก่อน', false); return; }
+  showStatus('⏳ กำลังบันทึกและ push ขึ้น Sheets...', true);
+  const db = buildDB(url);
+  localStorage.setItem(DBKEY, JSON.stringify(db));
+  const dbToSave = JSON.parse(JSON.stringify(db));
+  delete dbToSave.gs;
+  (dbToSave.products||[]).forEach(function(p){ delete p.img; });
+  try {
+    await fetch(url, {
+      method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({type:'saveDB', data: dbToSave})
+    });
+    const total = Object.values(stockData).reduce(function(a,b){return a+b;},0);
+    showStatus('✅ สำเร็จ! Push ขึ้น Sheets แล้ว<br>📦 สินค้า '+products.length+' รายการ<br>📊 สต๊อกรวม '+total+' ชิ้น<br>👉 เครื่องอื่นกด ☁️ เพื่อรับข้อมูลได้เลย', true);
+    document.getElementById('open-btn').style.display = 'block';
+  } catch(e) {
+    showStatus('⚠️ บันทึกลงเครื่องแล้ว แต่ push ไม่ได้<br>ลองกดปุ่มด้านล่างเปิด ShopPOS แล้วกด ☁️ อีกครั้ง', true);
+    document.getElementById('open-btn').style.display = 'block';
+  }
+}
+</script>
+</body>
+</html>
